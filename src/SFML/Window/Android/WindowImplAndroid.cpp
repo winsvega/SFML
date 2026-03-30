@@ -35,8 +35,11 @@
 
 #include <android/looper.h>
 
+#include <dlfcn.h>
 #include <mutex>
 #include <ostream>
+
+#include <cstring>
 
 // Define missing constants for older API levels
 #if __ANDROID_API__ < 13
@@ -436,11 +439,11 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
     {
         case AKEY_EVENT_ACTION_DOWN:
             forwardKeyEvent(Event::KeyPressed{});
-            if (const auto unicode = getUnicode(inputEvent))
-                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_UP:
             forwardKeyEvent(Event::KeyReleased{});
+            if (const auto unicode = getUnicode(inputEvent))
+                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_MULTIPLE:
             // This requires some special treatment, since this might represent
@@ -451,9 +454,6 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
                 const auto unicodeSequence = getUnicodeSequence(inputEvent);
                 for (const auto character : unicodeSequence)
                     forwardEvent(Event::TextEntered{character});
-
-                // Emit one additional key event so this path can be externally verified without a debugger
-                forwardKeyEvent(Event::KeyReleased{});
 
                 if (unicodeSequence.empty())
                 {
@@ -890,6 +890,30 @@ char32_t WindowImplAndroid::getUnicode(AInputEvent* event)
 ////////////////////////////////////////////////////////////
 std::u32string WindowImplAndroid::getUnicodeSequence(AInputEvent* event)
 {
+    using AKeyEventGetCharactersFn = const char* (*)(const AInputEvent*);
+
+    // AKeyEvent_getCharacters() is only available on recent NDK/platform combinations.
+    // Resolve it at runtime so older toolchains still compile and run.
+    static const auto getCharacters = reinterpret_cast<AKeyEventGetCharactersFn>(
+        dlsym(RTLD_DEFAULT, "AKeyEvent_getCharacters"));
+    if (getCharacters != nullptr)
+    {
+        if (const char* const utf8Sequence = getCharacters(event))
+        {
+            std::u32string unicodeSequence;
+            const char*    iterator = utf8Sequence;
+            const char*    end      = utf8Sequence + std::strlen(utf8Sequence);
+            while (iterator != end)
+            {
+                char32_t unicode = 0;
+                iterator         = sf::Utf<8>::decode(iterator, end, unicode, 0);
+                if (unicode != 0)
+                    unicodeSequence.push_back(unicode);
+            }
+            return unicodeSequence;
+        }
+    }
+
     // Retrieve activity states
     ActivityStates&       states = getActivity();
     const std::lock_guard lock(states.mutex);
