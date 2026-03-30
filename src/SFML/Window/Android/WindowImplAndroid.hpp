@@ -35,6 +35,8 @@
 
 #include <android/input.h>
 
+#include <string>
+
 
 namespace sf::priv
 {
@@ -159,6 +161,16 @@ private:
     ///
     ////////////////////////////////////////////////////////////
     static char32_t getUnicode(AInputEvent* event);
+
+    ////////////////////////////////////////////////////////////
+    /// \brief Get a Unicode sequence decoded from the input event
+    ///
+    /// \param event Input event
+    ///
+    /// \return Unicode sequence
+    ///
+    ////////////////////////////////////////////////////////////
+    static std::u32string getUnicodeSequence(AInputEvent* event);
 
     Vector2u m_size;
     bool     m_windowBeingCreated{};
