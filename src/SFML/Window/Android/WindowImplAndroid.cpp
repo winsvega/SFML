@@ -31,11 +31,14 @@
 #include <SFML/Window/WindowEnums.hpp>
 
 #include <SFML/System/Err.hpp>
+#include <SFML/System/Utf.hpp>
 
 #include <android/looper.h>
 
+#include <iterator>
 #include <mutex>
 #include <ostream>
+#include <vector>
 
 // Define missing constants for older API levels
 #if __ANDROID_API__ < 13
@@ -452,9 +455,16 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
             // a repetition of key presses or a complete sequence
             if (key == AKEYCODE_UNKNOWN)
             {
-                // This is a unique sequence, which is not yet exposed in the NDK
+                // This is a unique sequence, not directly exposed by the NDK.
+                // We retrieve it through KeyEvent.getCharacters().
                 // https://code.google.com/p/android/issues/detail?id=33998
-                return 0;
+                const auto unicodeSequence = getUnicodeSequence(inputEvent);
+                if (unicodeSequence.empty())
+                    return 0;
+
+                for (const auto codepoint : unicodeSequence)
+                    forwardEvent(Event::TextEntered{codepoint});
+                return 1;
             }
             if (const auto unicode = getUnicode(inputEvent)) // This is a repeated sequence
             {
@@ -871,6 +881,92 @@ char32_t WindowImplAndroid::getUnicode(AInputEvent* event)
     lJavaVM->DetachCurrentThread();
 
     return static_cast<char32_t>(unicode);
+}
+
+
+////////////////////////////////////////////////////////////
+std::u32string WindowImplAndroid::getUnicodeSequence(AInputEvent* event)
+{
+    // Retrieve activity states
+    ActivityStates&       states = getActivity();
+    const std::lock_guard lock(states.mutex);
+
+    // Initializes JNI
+    JavaVM* lJavaVM = states.activity->vm;
+    JNIEnv* lJNIEnv = states.activity->env;
+
+    JavaVMAttachArgs lJavaVMAttachArgs;
+    lJavaVMAttachArgs.version = JNI_VERSION_1_6;
+    lJavaVMAttachArgs.name    = "NativeThread";
+    lJavaVMAttachArgs.group   = nullptr;
+
+    const jint lResult = lJavaVM->AttachCurrentThread(&lJNIEnv, &lJavaVMAttachArgs);
+
+    if (lResult == JNI_ERR)
+    {
+        err() << "Failed to initialize JNI, couldn't get the Unicode sequence" << std::endl;
+        return {};
+    }
+
+    // Retrieve key data from the input event
+    const jlong downTime  = AKeyEvent_getDownTime(event);
+    const jlong eventTime = AKeyEvent_getEventTime(event);
+    const jint  action    = AKeyEvent_getAction(event);
+    const jint  code      = AKeyEvent_getKeyCode(event);
+    const jint  repeat    = AKeyEvent_getRepeatCount(event);
+    const jint  metaState = AKeyEvent_getMetaState(event);
+    const jint  deviceId  = AInputEvent_getDeviceId(event);
+    const jint  scancode  = AKeyEvent_getScanCode(event);
+    const jint  flags     = AKeyEvent_getFlags(event);
+    const jint  source    = AInputEvent_getSource(event);
+
+    // Construct a KeyEvent object from the event data
+    jclass    classKeyEvent       = lJNIEnv->FindClass("android/view/KeyEvent");
+    jmethodID keyEventConstructor = lJNIEnv->GetMethodID(classKeyEvent, "<init>", "(JJIIIIIIII)V");
+    jobject   objectKeyEvent      = lJNIEnv->NewObject(classKeyEvent,
+                                                  keyEventConstructor,
+                                                  downTime,
+                                                  eventTime,
+                                                  action,
+                                                  code,
+                                                  repeat,
+                                                  metaState,
+                                                  deviceId,
+                                                  scancode,
+                                                  flags,
+                                                  source);
+
+    // Read the full text sequence from KeyEvent.getCharacters()
+    jmethodID methodGetCharacters = lJNIEnv->GetMethodID(classKeyEvent, "getCharacters", "()Ljava/lang/String;");
+    auto*     charactersObject    = static_cast<jstring>(lJNIEnv->CallObjectMethod(objectKeyEvent, methodGetCharacters));
+
+    std::u32string unicodeSequence;
+    if (charactersObject != nullptr)
+    {
+        const auto* characters = reinterpret_cast<const char16_t*>(lJNIEnv->GetStringChars(charactersObject, nullptr));
+        const auto  length     = static_cast<std::size_t>(lJNIEnv->GetStringLength(charactersObject));
+
+        if (characters != nullptr)
+        {
+            std::vector<char32_t> utf32;
+            utf32.reserve(length);
+
+            Utf16::toUtf32(characters, characters + length, std::back_inserter(utf32));
+            unicodeSequence.assign(utf32.begin(), utf32.end());
+
+            lJNIEnv->ReleaseStringChars(charactersObject, reinterpret_cast<const jchar*>(characters));
+        }
+
+        lJNIEnv->DeleteLocalRef(charactersObject);
+    }
+
+    lJNIEnv->DeleteLocalRef(classKeyEvent);
+    lJNIEnv->DeleteLocalRef(objectKeyEvent);
+
+    // Detach this thread from the JVM
+    lJavaVM->DetachCurrentThread();
+
+    return unicodeSequence;
 }
 
 } // namespace sf::priv
