@@ -117,6 +117,12 @@ void WindowImplAndroid::processEvents()
     ActivityStates&       states = getActivity();
     const std::lock_guard lock(states.mutex);
 
+    while (!states.deferredText.empty())
+    {
+        pushEvent(Event::TextEntered{states.deferredText.front()});
+        states.deferredText.pop_front();
+    }
+
     if (m_windowBeingCreated)
     {
         states.context->createSurface(states.window);

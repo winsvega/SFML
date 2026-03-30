@@ -36,6 +36,7 @@
 #include <android/native_activity.h>
 
 #include <fstream>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -89,6 +90,8 @@ struct ActivityStates
     bool fullscreen{};
 
     bool updated{};
+
+    std::deque<char32_t> deferredText;
 
     LogcatStream logcat;
 };

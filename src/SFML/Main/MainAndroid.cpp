@@ -40,12 +40,15 @@
 #include <SFML/System/Err.hpp>
 #include <SFML/System/Sleep.hpp>
 #include <SFML/System/Time.hpp>
+#include <SFML/System/Utf.hpp>
 
 #include <android/native_activity.h>
 #include <android/window.h>
 
+#include <iterator>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include <cassert>
 #include <cstring>
@@ -563,4 +566,31 @@ JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* savedSt
 
     // Share this state with the callback functions
     activity->instance = states;
+}
+
+////////////////////////////////////////////////////////////
+extern "C" JNIEXPORT void JNICALL Java_org_sfml_app_SFMLNativeActivity_nativeCommitText(JNIEnv* env,
+                                                                                          jclass /* clazz */,
+                                                                                          jstring text)
+{
+    if (text == nullptr)
+        return;
+
+    sf::priv::ActivityStates& states = sf::priv::getActivity();
+    const std::lock_guard     lock(states.mutex);
+
+    const auto* utf16 = reinterpret_cast<const char16_t*>(env->GetStringChars(text, nullptr));
+    if (utf16 == nullptr)
+        return;
+
+    const auto length = static_cast<std::size_t>(env->GetStringLength(text));
+
+    std::vector<char32_t> utf32;
+    utf32.reserve(length);
+    sf::Utf16::toUtf32(utf16, utf16 + length, std::back_inserter(utf32));
+
+    env->ReleaseStringChars(text, reinterpret_cast<const jchar*>(utf16));
+
+    for (const auto codepoint : utf32)
+        states.deferredText.push_back(codepoint);
 }
