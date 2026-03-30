@@ -434,13 +434,17 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
         forwardEvent(keyEvent);
     };
 
+    const bool hasMappedKey = (key != AKEYCODE_UNKNOWN);
+
     switch (action)
     {
         case AKEY_EVENT_ACTION_DOWN:
-            forwardKeyEvent(Event::KeyPressed{});
+            if (hasMappedKey)
+                forwardKeyEvent(Event::KeyPressed{});
             return 1;
         case AKEY_EVENT_ACTION_UP:
-            forwardKeyEvent(Event::KeyReleased{});
+            if (hasMappedKey)
+                forwardKeyEvent(Event::KeyReleased{});
 
             if (const auto unicode = getUnicode(inputEvent))
             {
@@ -456,8 +460,11 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
         case AKEY_EVENT_ACTION_MULTIPLE:
             // Since complex inputs don't get separate key down/up events
             // both have to be faked at once
-            forwardKeyEvent(Event::KeyPressed{});
-            forwardKeyEvent(Event::KeyReleased{});
+            if (hasMappedKey)
+            {
+                forwardKeyEvent(Event::KeyPressed{});
+                forwardKeyEvent(Event::KeyReleased{});
+            }
 
             // This requires some special treatment, since this might represent
             // a repetition of key presses or a complete sequence
@@ -880,7 +887,14 @@ char32_t WindowImplAndroid::getUnicode(AInputEvent* event)
 
     // Call its getUnicodeChar() method to get the Unicode value
     jmethodID methodGetUnicode = lJNIEnv->GetMethodID(classKeyEvent, "getUnicodeChar", "(I)I");
-    const int unicode          = lJNIEnv->CallIntMethod(objectKeyEvent, methodGetUnicode, metaState);
+    int       unicode          = lJNIEnv->CallIntMethod(objectKeyEvent, methodGetUnicode, metaState);
+
+    // Some soft keyboard/IME paths expose only display labels
+    if (unicode == 0)
+    {
+        jmethodID methodGetDisplayLabel = lJNIEnv->GetMethodID(classKeyEvent, "getDisplayLabel", "()C");
+        unicode                         = lJNIEnv->CallCharMethod(objectKeyEvent, methodGetDisplayLabel);
+    }
 
     lJNIEnv->DeleteLocalRef(classKeyEvent);
     lJNIEnv->DeleteLocalRef(objectKeyEvent);
