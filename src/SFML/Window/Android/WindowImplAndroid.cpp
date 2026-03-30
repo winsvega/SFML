@@ -436,12 +436,11 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
     {
         case AKEY_EVENT_ACTION_DOWN:
             forwardKeyEvent(Event::KeyPressed{});
+            if (const auto unicode = getUnicode(inputEvent))
+                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_UP:
             forwardKeyEvent(Event::KeyReleased{});
-
-            if (const auto unicode = getUnicode(inputEvent))
-                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_MULTIPLE:
             // This requires some special treatment, since this might represent
@@ -449,8 +448,19 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
             if (key == AKEYCODE_UNKNOWN)
             {
                 // For IME-based text input, Android delivers UTF-16 text sequences through getCharacters()
-                for (const auto character : getUnicodeSequence(inputEvent))
+                const auto unicodeSequence = getUnicodeSequence(inputEvent);
+                for (const auto character : unicodeSequence)
                     forwardEvent(Event::TextEntered{character});
+
+                // Emit one additional key event so this path can be externally verified without a debugger
+                forwardKeyEvent(Event::KeyReleased{});
+
+                if (unicodeSequence.empty())
+                {
+                    // Fallback in case getCharacters() is not available from this input method
+                    if (const auto unicode = getUnicode(inputEvent))
+                        forwardEvent(Event::TextEntered{unicode});
+                }
                 return 1;
             }
 
