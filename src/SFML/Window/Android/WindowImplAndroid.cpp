@@ -443,7 +443,15 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
             forwardKeyEvent(Event::KeyReleased{});
 
             if (const auto unicode = getUnicode(inputEvent))
+            {
                 forwardEvent(Event::TextEntered{unicode});
+            }
+            else
+            {
+                const auto unicodeSequence = getUnicodeSequence(inputEvent);
+                for (const auto codepoint : unicodeSequence)
+                    forwardEvent(Event::TextEntered{codepoint});
+            }
             return 1;
         case AKEY_EVENT_ACTION_MULTIPLE:
             // Since complex inputs don't get separate key down/up events
