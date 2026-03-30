@@ -450,7 +450,7 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
             // a repetition of key presses or a complete sequence
             if (key == AKEYCODE_UNKNOWN)
             {
-                // For IME-based text input, Android delivers UTF-16 text sequences through getCharacters()
+                // IME-based text input can be delivered as a character sequence instead of a key code.
                 const auto unicodeSequence = getUnicodeSequence(inputEvent);
                 for (const auto character : unicodeSequence)
                     forwardEvent(Event::TextEntered{character});
@@ -894,8 +894,9 @@ std::u32string WindowImplAndroid::getUnicodeSequence(AInputEvent* event)
 
     // AKeyEvent_getCharacters() is only available on recent NDK/platform combinations.
     // Resolve it at runtime so older toolchains still compile and run.
-    static const auto getCharacters = reinterpret_cast<AKeyEventGetCharactersFn>(
-        dlsym(RTLD_DEFAULT, "AKeyEvent_getCharacters"));
+    static void* const libAndroid    = dlopen("libandroid.so", RTLD_LAZY | RTLD_LOCAL);
+    static const auto  getCharacters = reinterpret_cast<AKeyEventGetCharactersFn>(
+        libAndroid ? dlsym(libAndroid, "AKeyEvent_getCharacters") : nullptr);
     if (getCharacters != nullptr)
     {
         if (const char* const utf8Sequence = getCharacters(event))
