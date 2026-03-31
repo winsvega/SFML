@@ -460,7 +460,6 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
                 // https://code.google.com/p/android/issues/detail?id=33998
                 return 0;
             }
-
             if (const auto unicode = getUnicode(inputEvent)) // This is a repeated sequence
             {
                 const Event event(Event::TextEntered{unicode});
