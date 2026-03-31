@@ -442,10 +442,16 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
             return 1;
         case AKEY_EVENT_ACTION_UP:
             forwardKeyEvent(Event::KeyReleased{});
+
             if (const auto unicode = getUnicode(inputEvent))
                 forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_MULTIPLE:
+            // Since complex inputs don't get separate key down/up events
+            // both have to be faked at once
+            forwardKeyEvent(Event::KeyPressed{});
+            forwardKeyEvent(Event::KeyReleased{});
+
             // This requires some special treatment, since this might represent
             // a repetition of key presses or a complete sequence
             if (key == AKEYCODE_UNKNOWN)
@@ -454,11 +460,6 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
                 // https://code.google.com/p/android/issues/detail?id=33998
                 return 0;
             }
-
-            // Since complex inputs don't get separate key down/up events
-            // both have to be faked at once
-            forwardKeyEvent(Event::KeyPressed{});
-            forwardKeyEvent(Event::KeyReleased{});
 
             if (const auto unicode = getUnicode(inputEvent)) // This is a repeated sequence
             {
@@ -876,6 +877,5 @@ char32_t WindowImplAndroid::getUnicode(AInputEvent* event)
 
     return static_cast<char32_t>(unicode);
 }
-
 
 } // namespace sf::priv
