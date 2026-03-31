@@ -275,39 +275,7 @@ int WindowImplAndroid::processEvent(int /* fd */, int /* events */, void* /* dat
     if (AInputQueue_getEvent(states.inputQueue, &inputEvent) >= 0)
     {
         if (AInputQueue_preDispatchEvent(states.inputQueue, inputEvent))
-        {
-            // Some IMEs consume key events during pre-dispatch and do not resend a usable key event.
-            // Try to extract text anyway so composed/non-Latin input can still produce TextEntered.
-            if (AInputEvent_getType(inputEvent) == AINPUT_EVENT_TYPE_KEY)
-            {
-                const auto action = AKeyEvent_getAction(inputEvent);
-                const auto key    = AKeyEvent_getKeyCode(inputEvent);
-
-                if ((action == AKEY_EVENT_ACTION_DOWN || action == AKEY_EVENT_ACTION_UP ||
-                     action == AKEY_EVENT_ACTION_MULTIPLE) &&
-                    key != AKEYCODE_VOLUME_UP && key != AKEYCODE_VOLUME_DOWN)
-                {
-                    if (action == AKEY_EVENT_ACTION_MULTIPLE && key == AKEYCODE_UNKNOWN)
-                    {
-                        const auto unicodeSequence = getUnicodeSequence(inputEvent);
-                        for (const auto character : unicodeSequence)
-                            forwardEvent(Event::TextEntered{character});
-
-                        if (unicodeSequence.empty())
-                        {
-                            if (const auto unicode = getUnicode(inputEvent))
-                                forwardEvent(Event::TextEntered{unicode});
-                        }
-                    }
-                    else if (action == AKEY_EVENT_ACTION_UP)
-                    {
-                        if (const auto unicode = getUnicode(inputEvent))
-                            forwardEvent(Event::TextEntered{unicode});
-                    }
-                }
-            }
             return 1;
-        }
 
         int handled = 0;
 
@@ -471,11 +439,11 @@ int WindowImplAndroid::processKeyEvent(AInputEvent* inputEvent, ActivityStates& 
     {
         case AKEY_EVENT_ACTION_DOWN:
             forwardKeyEvent(Event::KeyPressed{});
+            if (const auto unicode = getUnicode(inputEvent))
+                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_UP:
             forwardKeyEvent(Event::KeyReleased{});
-            if (const auto unicode = getUnicode(inputEvent))
-                forwardEvent(Event::TextEntered{unicode});
             return 1;
         case AKEY_EVENT_ACTION_MULTIPLE:
             // This requires some special treatment, since this might represent
